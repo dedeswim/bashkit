@@ -2205,7 +2205,7 @@ fn make_py_builtin_context(
     py: Python<'_>,
     name: &str,
     ctx: &BuiltinContext<'_>,
-    rt: &Arc<Runtime>,
+    rt: &PyRuntime,
 ) -> Result<Py<PyBuiltinContext>, String> {
     // Wrap the interpreter's live VFS as a `Static` handle so callbacks read and
     // write the same filesystem without re-locking the interpreter.
@@ -3026,12 +3026,15 @@ struct PyCustomBuiltinAdapter {
     name: String,
     callback: Py<PyAny>,
     is_async: bool,
-    /// Shared runtime, threaded into each invocation's `ctx.fs` handle.
-    rt: Arc<Runtime>,
+    /// Shared runtime, threaded into each invocation's `ctx.fs` handle. A
+    /// `PyRuntime` clone is a refcount bump on the same `Arc<Runtime>` the
+    /// interpreter runs on; deterministic teardown still only fires when the
+    /// last clone drops (`Arc::into_inner` in `PyRuntime::drop`).
+    rt: PyRuntime,
 }
 
 impl PyCustomBuiltinAdapter {
-    fn from_entry(py: Python<'_>, entry: &PyCustomBuiltinEntry, rt: &Arc<Runtime>) -> Self {
+    fn from_entry(py: Python<'_>, entry: &PyCustomBuiltinEntry, rt: &PyRuntime) -> Self {
         Self {
             name: entry.name.clone(),
             callback: entry.callback.clone_ref(py),
@@ -3094,7 +3097,7 @@ impl Builtin for PyCustomBuiltinAdapter {
 fn build_runtime_custom_builtin_impls(
     py: Python<'_>,
     builtins: &[PyCustomBuiltinEntry],
-    rt: &Arc<Runtime>,
+    rt: &PyRuntime,
 ) -> Vec<PyCustomBuiltinAdapter> {
     builtins
         .iter()
@@ -3112,7 +3115,7 @@ fn populate_registry_from_entries(
     py: Python<'_>,
     registry: &BuiltinRegistry,
     builtins: &[PyCustomBuiltinEntry],
-    rt: &Arc<Runtime>,
+    rt: &PyRuntime,
 ) {
     for builtin in build_runtime_custom_builtin_impls(py, builtins, rt) {
         registry.insert(builtin.name.clone(), Arc::new(builtin));
